@@ -1,0 +1,235 @@
+#lang racket
+
+;Importaciones necesarias
+(require 2htdp/image)
+(require 2htdp/universe)
+(require lang/posn)
+(require "GameLogic.rkt")
+(require "GreedyAlgorithm.rkt")
+
+;Declaramos las dimensiones de la interfaz
+
+(define Height 600)
+(define Width 600)
+;Estte es el canvas de trabajo
+(define Canvas (empty-scene Height Width "black"))
+;Este es el centro de la escena de trabajo
+(define Center-stage(make-posn(- (/ Width 2)200)(/ Height 2)))
+
+;Variables en forma de funciones
+(define Fila 1)
+(define Columna 1)
+(define Turno 0)
+(define Stopper (list 0))
+
+;Calculamos la posición del mouse en pantalla dentro del canvas
+(define(get_Xpos x p) (quotient x (floor(/ Width p))))
+(define(get_Ypos y q)(quotient y (floor (/ Height q))))
+
+
+;Definimos los campos de juego dentro del canvas
+;En X
+(define Cuadrado-X (/ Width Columna))
+; En Y
+(define Cuadrado-Y (/ Height Fila))
+
+
+;;;;;;;;;;;Definimos las líneas de dibujo
+
+;Campo vacío para recibir un parámetro de pc o jugador
+(define (rectan-vacio ancho altura)
+  overlay(rectangle ancho altura "outline" "purple")
+  )
+;Le escribimos una O de dado tamaño
+(define (rectan-o ancho altura)
+  (overlay(rectangle ancho altura "outline" "purple") (circle 25 "solid" "white")(circle 5 "solid" "black"))
+  )
+;Le escribimos una X de dado tamaño
+(define (rectan-x ancho altura)
+  (overlay(rectangle ancho altura "outline" "purple") (line -35 -45 "white") (line -35 45 "white"))
+  )
+
+;Mensajes en caso de finalización, recibo la cantidad de turnos
+(define (Game-over player)
+  (cond
+    ((equal? player (* Fila Columna)) ;Si cada casilla fue rellenada y no hay ganador despúes del ultimo turno, empate es empate
+     (set! Turno 0)
+     (set! Stopper (list 0))
+     (text "Empatamos \nSigamos jugando" 20 "yellow"))
+    ((equal? (remainder player 2) 0) ;Si los turnos son pares gana la casa
+     (set! Turno 0)
+     (set! Stopper (list 0))
+     (text "Pediste \nMejor Suerte para la próxima" 20 "red"))
+    (else ; caso de victoria para la visita
+     (set! Turno 0)
+     (set! Stopper (list 0))
+     (text "Ganaste \nBuen Trabajo" 20 "blue"))
+  ))
+
+
+
+;Lista de pictures dependendo del parámetro
+;Si es 0 agrega rectangulo, con el 1 agrega la X, con el 2 agrega la O
+(define (lista_imagen listadata)
+  (cond
+    ((empty? listadata)
+     listadata
+     )
+    (else
+     (lista-imag-aux listadata '()))
+  ))
+(define (lista-imag-aux listadata resp)
+  (cond
+    ((empty? listadata)
+     resp
+     )
+    (else ;Anido el flujo
+     (cond
+       ((zero? (car listadata))
+        (lista-imag-aux (cdr listadata) (append resp (list (rectan-vacio Cuadrado-X Cuadrado-Y))))
+        )
+       ((equal? (car listadata) 1)
+        (lista-imag-aux (cdr listadata)(append resp(list (rectan-x Cuadrado-X Cuadrado-Y))))
+        )
+       ((equal? (car listadata) 2)
+        (lista-imag-aux (cdr listadata)(append resp (list (rectan-o Cuadrado-X Cuadrado-Y))))
+        )
+       (else ;Quita el ruido
+        (lista-imag-aux (cdr listadata) resp)
+        )
+    )
+  )))
+
+;Retorna una lista de posiciones para dibujo
+(define(pos-imag matriz)
+  (cond
+    ((empty? matriz)
+     matriz
+     )
+    (else
+     (pos-imag-aux matriz 0 0 '()))
+  ))
+;Recorremos la matriz y agregamos posiciones donde va un elemento
+(define(pos-imag-aux matriz i j resp)
+  (cond
+    ((empty? matriz)
+     resp)
+    ((empty? (car matriz))
+     (pos-imag-aux (cdr matriz) (+ i Cuadrado-Y) 0 resp)
+     )
+    (else
+     (pos-imag-aux(append (list(cdar matriz)) (cdr matriz)) i (+ j Cuadrado-X) (append resp(list (make-posn j i)))))
+    )
+  )
+
+;Administrador de la interfaz
+;Recibe un número y dibuja los rectangulos o los mensajes de vistoria
+(define (Tortilla n)
+  (cond
+    ((zero? (car Stopper))
+     (place-images/align (lista_imagen (matrix-to-list n))(pos-imag n) "left" "top" Canvas)
+     )
+    (else
+     (place-images/align (append (lista_imagen (matrix-to-list n)) (list (Game-over Turno)))
+                         (append (pos-imag n) (list Center-stage)) "left" "top" Canvas)
+     )
+    )
+  )
+
+;Obtengo la pos del mouse y pongo un 1 por el jugador, alerto a la pc de que es su turno
+(define (Player-mueve k x y me)
+  (cond
+    ((mouse=? me "button-down")
+     (cond
+       ((zero? (get_element k (get_Ypos y Fila) (get_Xpos x Columna)))
+        (set! Turno(+ Turno 1))
+        (replace_matrix k (get_Ypos y Fila) (get_Xpos x Columna) 1)
+       )
+       (else
+        k
+       ) 
+     )  
+    )
+    (else
+     k
+    )
+  )  
+)
+
+
+;Verifica Si la Casa o la visita gana
+; Manda el mensaje de final
+(define (Repeticion? matrix)
+  (cond
+    ((or (win? matrix 1) (win? matrix 2) (equal? Turno (* Fila Columna)))
+     (set! Stopper (list 1))
+     #t
+    )
+    (else
+     #f
+    )
+  )
+)
+;Limpia la pantalla
+(define (reinicio z ke)
+  (cond
+    ((key=? ke "up")
+     (make_matrix Fila Columna)
+    )
+    (else
+     z
+    )
+  )  
+)
+;; Función que llama al algoritmo voraz para realiar el movimiento de la PC. Sólo realiza esta función si la cantidad de turnos
+;; es impar.
+(define (Juega-pc matrix)
+  (cond
+    ((equal? (remainder Turno 2) 1)
+     (set! Turno (+ Turno 1))
+     (greedyAlgorithmn matrix)
+    )
+    (else
+     matrix
+    )
+  )
+)
+
+;Verifico la condición principal de juego
+(define (TTT m n)
+  (cond
+    ((equal? (< 11 m) #t)
+     (display "\n\nDENEGADO")
+     )
+    ((equal? (< 11 n) #t)
+     (display "\n\nDENEGADO")
+     )
+    ((equal? (> 3 m) #t)
+     (display "\n\nDENEGADO")
+     )
+    ((equal? (> 3 n) #t)
+     (display "\n\nDENEGADO")
+     )
+    (else
+     (Burrito m n)
+     )
+    )
+  )
+;Función bucle
+(define (Burrito m n)
+  (set! Fila m)
+  (set! Columna n)
+  (set! Cuadrado-X (/ Width Columna))
+  (set! Cuadrado-Y (/ Height Fila))
+
+  (big-bang
+      (make_matrix Fila Columna)
+      (name "Tic-Tac-Toe")      
+      (on-mouse Player-mueve)      
+      (on-key reinicio)
+      (on-tick Juega-pc)
+      (to-draw Tortilla)
+      (stop-when Repeticion? Tortilla)
+    )
+      
+  )
